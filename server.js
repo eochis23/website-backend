@@ -16,21 +16,24 @@ app.get('/', (req, res) => {
     res.send('Backend is running with Gemini!');
 });
 
-// ROUTE 1: Generate Email Draft (The New Feature)
+// ROUTE 1: Generate Email Draft (The AI Feature)
 app.post('/api/draft-email', async (req, res) => {
-    const { bullets } = req.body;
+    const { bullets, name } = req.body;
 
     if (!bullets) {
         return res.status(400).json({ error: "Bullet points are required" });
     }
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
         
+        // This prompt now uses the sender's name
         const prompt = `
         You are a helpful assistant. 
-        Turn the following bullet points into a professional, polite email message from a user to Eric Ochis (a student/developer).
-        Keep it concise and friendly.
+        Turn the following bullet points into a professional, polite email message from "${name || 'a user'}" to Eric Ochis.
+        
+        1. Keep it concise and friendly.
+        2. Sign off the email with the name "${name || 'User'}".
         
         Bullet points:
         ${bullets}
@@ -47,7 +50,7 @@ app.post('/api/draft-email', async (req, res) => {
     }
 });
 
-// ROUTE 2: Receive Contact Form (The Existing Feature)
+// ROUTE 2: Receive Contact Form (The Logging Feature)
 app.post('/api/contact', (req, res) => {
     const { name, email, message } = req.body;
     
