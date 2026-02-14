@@ -1,69 +1,39 @@
 const express = require('express');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(cors()); // Allows your HTML site to talk to this server
+app.use(express.json()); // Allows server to read JSON data
 
-// Configure the Email Transporter
-const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com", 
-    port: 465,               
-    secure: true,            
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-});
-
-// Verify connection configuration
-transporter.verify(function (error, success) {
-    if (error) {
-        console.log("Error connecting to Gmail:", error);
-    } else {
-        console.log("Server is ready to take our messages");
-    }
-});
-
+// 1. Root Route (To check if server is running)
 app.get('/', (req, res) => {
     res.send('Backend is running!');
 });
 
-app.post('/api/contact', async (req, res) => {
+// 2. Contact Route (Receives the form data)
+app.post('/api/contact', (req, res) => {
     const { name, email, message } = req.body;
 
+    // VALIDATION: Check if data exists
     if (!name || !email || !message) {
         return res.status(400).json({ error: "All fields are required." });
     }
 
-    const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: process.env.EMAIL_USER, // Sends to yourself
-        subject: `New Portfolio Message from ${name}`,
-        text: `
-        You have a new message from your portfolio website:
-        
-        Name: ${name}
-        Email: ${email}
-        
-        Message:
-        ${message}
-        `
-    };
+    // LOGGING: This prints the message to your Render logs (Server Console)
+    console.log("--------------------------------");
+    console.log("NEW CONTACT FORM SUBMISSION:");
+    console.log("Name:", name);
+    console.log("Email:", email);
+    console.log("Message:", message);
+    console.log("--------------------------------");
 
-    try {
-        await transporter.sendMail(mailOptions);
-        console.log("Email sent successfully!");
-        res.json({ status: "success", message: "Email sent!" });
-    } catch (error) {
-        console.error("Error sending email:", error);
-        res.status(500).json({ error: "Failed to send email" });
-    }
+    // SUCCESS RESPONSE
+    res.json({ status: "success", message: "Message received by server." });
 });
 
+// Start Server
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
