@@ -1,39 +1,67 @@
 const express = require('express');
 const cors = require('cors');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors()); // Allows your HTML site to talk to this server
-app.use(express.json()); // Allows server to read JSON data
+app.use(cors());
+app.use(express.json());
 
-// 1. Root Route (To check if server is running)
+// Initialize Gemini
+// Ensure you added GEMINI_API_KEY in Render Environment Variables!
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
 app.get('/', (req, res) => {
-    res.send('Backend is running!');
+    res.send('Backend is running with Gemini!');
 });
 
-// 2. Contact Route (Receives the form data)
-app.post('/api/contact', (req, res) => {
-    const { name, email, message } = req.body;
+// ROUTE 1: Generate Email Draft (The New Feature)
+app.post('/api/draft-email', async (req, res) => {
+    const { bullets } = req.body;
 
-    // VALIDATION: Check if data exists
-    if (!name || !email || !message) {
-        return res.status(400).json({ error: "All fields are required." });
+    if (!bullets) {
+        return res.status(400).json({ error: "Bullet points are required" });
     }
 
-    // LOGGING: This prints the message to your Render logs (Server Console)
-    console.log("--------------------------------");
-    console.log("NEW CONTACT FORM SUBMISSION:");
-    console.log("Name:", name);
-    console.log("Email:", email);
-    console.log("Message:", message);
-    console.log("--------------------------------");
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        
+        const prompt = `
+        You are a helpful assistant. 
+        Turn the following bullet points into a professional, polite email message from a user to Eric Ochis (a student/developer).
+        Keep it concise and friendly.
+        
+        Bullet points:
+        ${bullets}
+        `;
 
-    // SUCCESS RESPONSE
-    res.json({ status: "success", message: "Message received by server." });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+
+        res.json({ draft: text });
+    } catch (error) {
+        console.error("Gemini Error:", error);
+        res.status(500).json({ error: "Failed to generate draft." });
+    }
 });
 
-// Start Server
+// ROUTE 2: Receive Contact Form (The Existing Feature)
+app.post('/api/contact', (req, res) => {
+    const { name, email, message } = req.body;
+    
+    // Log to Render Console
+    console.log("========================================");
+    console.log("📨 NEW MESSAGE RECEIVED");
+    console.log(`👤 Name: ${name}`);
+    console.log(`📧 Email: ${email}`);
+    console.log(`📝 Message: ${message}`);
+    console.log("========================================");
+
+    res.json({ status: "success", message: "Message logged successfully!" });
+});
+
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
