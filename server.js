@@ -1,39 +1,61 @@
 const express = require('express');
 const cors = require('cors');
+const nodemailer = require('nodemailer'); // Import the email library
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors()); // Allows your HTML site to talk to this server
-app.use(express.json()); // Allows server to read JSON data
+app.use(cors());
+app.use(express.json());
 
-// 1. Root Route (To check if server is running)
+// Configure the Email Transporter
+// We use "process.env" to keep your password secret (See Step 4)
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER, // Your email address
+        pass: process.env.EMAIL_PASS  // Your App Password
+    }
+});
+
 app.get('/', (req, res) => {
     res.send('Backend is running!');
 });
 
-// 2. Contact Route (Receives the form data)
-app.post('/api/contact', (req, res) => {
+app.post('/api/contact', async (req, res) => {
     const { name, email, message } = req.body;
 
-    // VALIDATION: Check if data exists
     if (!name || !email || !message) {
         return res.status(400).json({ error: "All fields are required." });
     }
 
-    // LOGGING: This prints the message to your Render logs (Server Console)
-    console.log("--------------------------------");
-    console.log("NEW CONTACT FORM SUBMISSION:");
-    console.log("Name:", name);
-    console.log("Email:", email);
-    console.log("Message:", message);
-    console.log("--------------------------------");
+    // Email Layout
+    const mailOptions = {
+        from: process.env.EMAIL_USER,      // Sender (You)
+        to: process.env.EMAIL_USER,        // Receiver (Also You)
+        subject: `New Portfolio Message from ${name}`,
+        text: `
+        You have a new message from your portfolio website:
+        
+        Name: ${name}
+        Email: ${email}
+        
+        Message:
+        ${message}
+        `
+    };
 
-    // SUCCESS RESPONSE
-    res.json({ status: "success", message: "Message received by server." });
+    try {
+        // Send the email
+        await transporter.sendMail(mailOptions);
+        console.log("Email sent successfully!");
+        res.json({ status: "success", message: "Email sent!" });
+    } catch (error) {
+        console.error("Error sending email:", error);
+        res.status(500).json({ error: "Failed to send email" });
+    }
 });
 
-// Start Server
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
