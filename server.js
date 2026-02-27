@@ -69,9 +69,8 @@ app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
 // ROUTE 3: Log Authenticated Visitors to Google Sheets
-// ROUTE 3: Log Authenticated Visitors to Google Sheets
 app.post('/api/log-visitor', async (req, res) => {
-    const { email } = req.body;
+    const { email, firstName } = req.body; // <-- Extract firstName
 
     if (!email || !email.endsWith('@andrew.cmu.edu')) {
         console.log("❌ Rejected invalid email:", email);
@@ -86,11 +85,11 @@ app.post('/api/log-visitor', async (req, res) => {
             return res.status(500).json({ error: "Server config error" });
         }
 
-        console.log(`⏳ Attempting to send ${email} to Google Sheets...`);
+        console.log(`⏳ Attempting to send ${firstName} (${email}) to Google Sheets...`);
 
         const response = await fetch(scriptUrl, {
             method: 'POST',
-            body: JSON.stringify({ email: email }),
+            body: JSON.stringify({ email: email, firstName: firstName }), // <-- Forward it
             headers: { 'Content-Type': 'application/json' }
         });
         
@@ -100,7 +99,7 @@ app.post('/api/log-visitor', async (req, res) => {
         }
 
         console.log("========================================");
-        console.log(`✅ SUCCESS: NEW VISITOR LOGGED TO SHEET: ${email}`);
+        console.log(`✅ SUCCESS: NEW VISITOR LOGGED TO SHEET: ${firstName} - ${email}`);
         console.log("========================================");
         
         res.json({ status: "success", message: "Visitor recorded!" });
