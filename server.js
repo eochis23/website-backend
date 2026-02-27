@@ -69,33 +69,43 @@ app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
 // ROUTE 3: Log Authenticated Visitors to Google Sheets
+// ROUTE 3: Log Authenticated Visitors to Google Sheets
 app.post('/api/log-visitor', async (req, res) => {
     const { email } = req.body;
 
-    // Double-check the domain on the server side for security
     if (!email || !email.endsWith('@andrew.cmu.edu')) {
+        console.log("❌ Rejected invalid email:", email);
         return res.status(400).json({ error: "Invalid or missing CMU email" });
     }
 
     try {
-        // The URL from your Google Apps Script deployment
         const scriptUrl = process.env.GOOGLE_SCRIPT_URL; 
         
-        // Forward the email to your Google Sheet
-        // Note: fetch is natively supported in Node.js 18+ (Render's default)
-        await fetch(scriptUrl, {
+        if (!scriptUrl) {
+            console.error("❌ ERROR: GOOGLE_SCRIPT_URL is missing in Render Environment Variables!");
+            return res.status(500).json({ error: "Server config error" });
+        }
+
+        console.log(`⏳ Attempting to send ${email} to Google Sheets...`);
+
+        const response = await fetch(scriptUrl, {
             method: 'POST',
             body: JSON.stringify({ email: email }),
             headers: { 'Content-Type': 'application/json' }
         });
         
+        if (!response.ok) {
+            console.error(`❌ Google Sheets returned an error: ${response.status} ${response.statusText}`);
+            return res.status(500).json({ error: "Failed to log visitor to sheet." });
+        }
+
         console.log("========================================");
-        console.log(`👋 NEW VISITOR LOGGED TO SHEET: ${email}`);
+        console.log(`✅ SUCCESS: NEW VISITOR LOGGED TO SHEET: ${email}`);
         console.log("========================================");
         
         res.json({ status: "success", message: "Visitor recorded!" });
     } catch (error) {
-        console.error("Sheet Error:", error);
+        console.error("❌ Backend Fetch Error:", error.message);
         res.status(500).json({ error: "Failed to log visitor." });
     }
 });
