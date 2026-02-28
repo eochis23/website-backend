@@ -40,9 +40,8 @@ app.use(express.json());
 io.on('connection', (socket) => {
     console.log(`👤 User Connected: ${socket.id}`);
 
-    // NEW: Random Matchmaking Logic
-    socket.on('find_match', ({ user }) => {
-        // NEW: Prevent the exact same browser tab from matching with itself
+    // Make sure to add 'async' here
+    socket.on('find_match', async ({ user }) => {
         if (waitingPlayer && waitingPlayer.socket.id === socket.id) return;
 
         if (waitingPlayer) {
@@ -58,6 +57,35 @@ io.on('connection', (socket) => {
             const whiteUser = { ...whitePlayer.user, socketId: whitePlayer.socket.id };
             const blackUser = { ...blackPlayer.user, socketId: blackPlayer.socket.id };
 
+            // --- NEW: Calculate Head-to-Head Record ---
+            let whiteWins = 0;
+            let blackWins = 0;
+            let draws = 0;
+
+            try {
+                // Fetch games to calculate the record between these two specific players
+                const pastGames = await GameLog.findAll(); 
+                pastGames.forEach(game => {
+                    const wEmail = game.whitePlayer?.email;
+                    const bEmail = game.blackPlayer?.email;
+                    
+                    if ((wEmail === whiteUser.email && bEmail === blackUser.email) ||
+                        (wEmail === blackUser.email && bEmail === whiteUser.email)) {
+                        
+                        if (game.outcome === '1/2-1/2') {
+                            draws++;
+                        } else if (game.outcome === '1-0') {
+                            if (wEmail === whiteUser.email) whiteWins++; else blackWins++;
+                        } else if (game.outcome === '0-1') {
+                            if (bEmail === whiteUser.email) blackWins++; else whiteWins++;
+                        }
+                    }
+                });
+            } catch (err) {
+                console.error("Failed to fetch head-to-head record:", err);
+            }
+            // ------------------------------------------
+
             activeGames[gameId] = {
                 whitePlayer: whiteUser,
                 blackPlayer: blackUser,
@@ -72,7 +100,8 @@ io.on('connection', (socket) => {
                 gameId: gameId, 
                 white: whiteUser,
                 black: blackUser,
-                fen: 'startpos'
+                fen: 'startpos',
+                record: { whiteWins, blackWins, draws } // Send the tallied record to the clients!
             });
 
             waitingPlayer = null; 
