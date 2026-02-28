@@ -29,8 +29,14 @@ const Game = sequelize.define('Game', {
 });
 
 // 3. Initialize Socket.io
+// server.js - Update the Socket.io initialization
 const io = new Server(server, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
+    cors: {
+        origin: ["https://eochis23.github.io", "http://localhost:5173"], // Explicitly allow your GitHub Pages and local test
+        methods: ["GET", "POST"],
+        credentials: true
+    },
+    transports: ['websocket', 'polling'] // Prioritize WebSockets
 });
 
 app.use(cors());
