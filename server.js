@@ -107,6 +107,10 @@ io.on('connection', (socket) => {
     socket.on('accept_draw', ({ gameId }) => {
         socket.to(gameId).emit('draw_accepted');
     });
+    // Rescind Draw Relay
+    socket.on('rescind_draw', ({ gameId }) => {
+        socket.to(gameId).emit('draw_rescinded');
+    });
 
     // -----------------------------------------------
 
