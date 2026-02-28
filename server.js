@@ -124,6 +124,26 @@ app.post('/api/log-visitor', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Failed to log visitor." }); }
 });
 
+
+// Chat Relay
+    socket.on('send_chat', ({ gameId, message, author }) => {
+        socket.to(gameId).emit('receive_chat', { message, author });
+    });
+
+    // Resign Relay
+    socket.on('resign', ({ gameId, outcome }) => {
+        socket.to(gameId).emit('opponent_resigned', { outcome });
+    });
+
+    // Draw Offer Relay
+    socket.on('offer_draw', ({ gameId }) => {
+        socket.to(gameId).emit('draw_offered');
+    });
+
+    // Draw Accept Relay
+    socket.on('accept_draw', ({ gameId }) => {
+        socket.to(gameId).emit('draw_accepted');
+    });
 // Start server (Using force: true temporarily to wipe the broken Game table)
 sequelize.sync({ force: true }).then(() => {
     server.listen(port, () => console.log(`🚀 Server + WebSockets running on port ${port}`));
