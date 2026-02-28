@@ -9,70 +9,49 @@ const app = express();
 const server = http.createServer(app); 
 const port = process.env.PORT || 3000;
 
-// 1. Initialize SQL Database (PostgreSQL on Render)
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// --- DATABASE SETUP ---
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'postgres',
     dialectOptions: { ssl: { require: true, rejectUnauthorized: false } }
 });
 
-// 2. Define the Game Model
-const Game = sequelize.define('Game', {
-    fen: { type: DataTypes.TEXT, defaultValue: 'startpos' },
-    whitePlayer: { type: DataTypes.JSON, allowNull: true },
-    blackPlayer: { type: DataTypes.JSON, allowNull: true },
-    history: { type: DataTypes.JSON, defaultValue: [] }
+const UserStats = sequelize.define('UserStats', {
+    email: { type: DataTypes.STRING, primaryKey: true },
+    firstName: { type: DataTypes.STRING },
+    elo: { type: DataTypes.INTEGER, defaultValue: 1500 },
+    wins: { type: DataTypes.INTEGER, defaultValue: 0 },
+    losses: { type: DataTypes.INTEGER, defaultValue: 0 },
+    draws: { type: DataTypes.INTEGER, defaultValue: 0 }
 });
 
-// 3. Initialize Socket.io
+const MatchResult = sequelize.define('MatchResult', {
+    whiteEmail: { type: DataTypes.STRING },
+    blackEmail: { type: DataTypes.STRING },
+    winner: { type: DataTypes.STRING },
+    finalFen: { type: DataTypes.TEXT }
+});
+
+// Export models so socket.js can use them
+module.exports = { UserStats, MatchResult };
+
+// --- SOCKET.IO INITIALIZATION ---
 const io = new Server(server, {
     cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-app.use(cors());
-app.use(express.json());
+// Import and run the separate socket logic
+require('./socket')(io);
 
-// --- REAL-TIME CHESS & MATCHMAKING LOGIC ---
-io.on('connection', (socket) => {
-    console.log(`👤 User Connected: ${socket.id}`);
-
-    // When a player joins a game room
-    socket.on('join_game', async ({ gameId, user }) => {
-        socket.join(gameId);
-        
-        // Find or create the game in the SQL database
-        let [game, created] = await Game.findOrCreate({ where: { id: gameId } });
-
-        // Assign spots (White or Black)
-        if (!game.whitePlayer) {
-            game.whitePlayer = user;
-        } else if (!game.blackPlayer && game.whitePlayer.email !== user.email) {
-            game.blackPlayer = user;
-        }
-
-        await game.save();
-
-        // Tell everyone in the room who the players are
-        io.to(gameId).emit('update_players', {
-            white: game.whitePlayer,
-            black: game.blackPlayer,
-            fen: game.fen
-        });
-    });
-
-    // Handle Moves
-    socket.on('make_move', async ({ gameId, move, fen }) => {
-        // Broadcast the move to the other player immediately
-        socket.to(gameId).emit('receive_move', { move, fen });
-
-        // Save the board state to SQL so it persists on refresh
-        await Game.update({ fen: fen }, { where: { id: gameId } });
-    });
-
-    socket.on('disconnect', () => console.log("User Disconnected"));
-});
-
-// --- YOUR EXISTING ROUTES (DO NOT CHANGE DATA VALUES) ---
+// --- EXISTING ROUTES ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+app.get('/', (req, res) => {
+    res.send('Backend is running with Gemini and WebSockets!');
+});
 
 app.post('/api/draft-email', async (req, res) => {
     const { bullets, name } = req.body;
@@ -87,11 +66,11 @@ app.post('/api/draft-email', async (req, res) => {
 });
 
 app.post('/api/log-visitor', async (req, res) => {
-    const { email, firstName } = req.body;
+    const { email, firstName } = req.body; //
     if (!email || !email.endsWith('@andrew.cmu.edu')) return res.status(400).json({ error: "Invalid CMU email" });
     try {
         const scriptUrl = process.env.GOOGLE_SCRIPT_URL; 
-        const response = await fetch(scriptUrl, {
+        await fetch(scriptUrl, {
             method: 'POST',
             body: JSON.stringify({ email: email, firstName: firstName }),
             headers: { 'Content-Type': 'application/json' }
@@ -100,7 +79,9 @@ app.post('/api/log-visitor', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Failed to log visitor." }); }
 });
 
-// Start server
+// --- START SERVER ---
 sequelize.sync().then(() => {
-    server.listen(port, () => console.log(`🚀 Server + WebSockets running on port ${port}`));
+    server.listen(port, () => {
+        console.log(`🚀 Server running on port ${port}`);
+    });
 });
