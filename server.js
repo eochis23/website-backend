@@ -42,11 +42,10 @@ io.on('connection', (socket) => {
 
     // NEW: Random Matchmaking Logic
     socket.on('find_match', ({ user }) => {
-        // Prevent user from joining queue twice
-        if (waitingPlayer && waitingPlayer.user.email === user.email) return;
+        // REMOVED: The check that prevented the same email from joining twice
+        // Now you can test against yourself in two tabs!
 
         if (waitingPlayer) {
-            // Match Found! Create a new unique room.
             const gameId = crypto.randomUUID();
             const p1 = waitingPlayer;
             const p2 = { socket, user };
@@ -56,28 +55,29 @@ io.on('connection', (socket) => {
             const whitePlayer = isP1White ? p1 : p2;
             const blackPlayer = isP1White ? p2 : p1;
 
+            // NEW: Attach the unique socket ID to the user payload
+            const whiteUser = { ...whitePlayer.user, socketId: whitePlayer.socket.id };
+            const blackUser = { ...blackPlayer.user, socketId: blackPlayer.socket.id };
+
             activeGames[gameId] = {
-                whitePlayer: whitePlayer.user,
-                blackPlayer: blackPlayer.user,
+                whitePlayer: whiteUser,
+                blackPlayer: blackUser,
                 fen: 'startpos',
                 history: []
             };
 
-            // Put both sockets in the private room
             whitePlayer.socket.join(gameId);
             blackPlayer.socket.join(gameId);
 
-            // Tell both players the game has started
             io.to(gameId).emit('update_players', {
-                gameId: gameId, // Send the new dynamic ID to the clients
-                white: whitePlayer.user,
-                black: blackPlayer.user,
+                gameId: gameId, 
+                white: whiteUser,
+                black: blackUser,
                 fen: 'startpos'
             });
 
-            waitingPlayer = null; // Clear the queue
+            waitingPlayer = null; 
         } else {
-            // Nobody waiting, put this player in the queue
             waitingPlayer = { socket, user };
             socket.emit('waiting_for_match');
         }
