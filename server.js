@@ -37,7 +37,7 @@ app.post('/api/draft-email', async (req, res) => {
 
 app.post('/api/log-visitor', async (req, res) => {
     const { email, firstName } = req.body;
-    if (!email || !email.endsWith('@andrew.cmu.edu')) return res.status(400).json({ error: "Invalid email" });
+    // if (!email || !email.endsWith('@andrew.cmu.edu')) return res.status(400).json({ error: "Invalid email" });
     try {
         await fetch(process.env.GOOGLE_SCRIPT_URL, {
             method: 'POST',
