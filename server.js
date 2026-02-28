@@ -15,7 +15,7 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialectOptions: { ssl: { require: true, rejectUnauthorized: false } }
 });
 
-// 2. Define the NEW Game Model (Only for finished games)
+// 2. Define the NEW Game Model
 const GameLog = sequelize.define('GameLog', {
     whitePlayer: { type: DataTypes.JSON, allowNull: true },
     blackPlayer: { type: DataTypes.JSON, allowNull: true },
@@ -23,7 +23,7 @@ const GameLog = sequelize.define('GameLog', {
     history: { type: DataTypes.JSON, defaultValue: [] }
 });
 
-// 3. In-Memory Store for Active Games
+// 3. In-Memory Store
 const activeGames = {};
 
 // 4. Initialize Socket.io
@@ -40,8 +40,6 @@ io.on('connection', (socket) => {
 
     socket.on('join_game', ({ gameId, user }) => {
         socket.join(gameId);
-        
-        // Initialize the room in memory if it doesn't exist
         if (!activeGames[gameId]) {
             activeGames[gameId] = {
                 whitePlayer: null,
@@ -50,15 +48,12 @@ io.on('connection', (socket) => {
                 history: [] 
             };
         }
-
         const room = activeGames[gameId];
-
         if (!room.whitePlayer) {
             room.whitePlayer = user;
         } else if (!room.blackPlayer && room.whitePlayer.email !== user.email) {
             room.blackPlayer = user;
         }
-
         io.to(gameId).emit('update_players', {
             white: room.whitePlayer,
             black: room.blackPlayer,
@@ -68,7 +63,6 @@ io.on('connection', (socket) => {
 
     socket.on('make_move', ({ gameId, move, fen, san }) => {
         socket.to(gameId).emit('receive_move', { move, fen });
-
         if (activeGames[gameId]) {
             activeGames[gameId].fen = fen;
             if (san) activeGames[gameId].history.push(san);
@@ -92,10 +86,34 @@ io.on('connection', (socket) => {
         }
     });
 
+    // --- MOVED THESE INSIDE THE CONNECTION BLOCK ---
+
+    // Chat Relay
+    socket.on('send_chat', ({ gameId, message, author }) => {
+        socket.to(gameId).emit('receive_chat', { message, author });
+    });
+
+    // Resign Relay
+    socket.on('resign', ({ gameId, outcome }) => {
+        socket.to(gameId).emit('opponent_resigned', { outcome });
+    });
+
+    // Draw Offer Relay
+    socket.on('offer_draw', ({ gameId }) => {
+        socket.to(gameId).emit('draw_offered');
+    });
+
+    // Draw Accept Relay
+    socket.on('accept_draw', ({ gameId }) => {
+        socket.to(gameId).emit('draw_accepted');
+    });
+
+    // -----------------------------------------------
+
     socket.on('disconnect', () => console.log("User Disconnected"));
 });
 
-// --- YOUR EXISTING ROUTES (DO NOT CHANGE DATA VALUES) ---
+// --- YOUR EXISTING ROUTES ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.post('/api/draft-email', async (req, res) => {
@@ -124,26 +142,6 @@ app.post('/api/log-visitor', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Failed to log visitor." }); }
 });
 
-
-// Chat Relay
-    socket.on('send_chat', ({ gameId, message, author }) => {
-        socket.to(gameId).emit('receive_chat', { message, author });
-    });
-
-    // Resign Relay
-    socket.on('resign', ({ gameId, outcome }) => {
-        socket.to(gameId).emit('opponent_resigned', { outcome });
-    });
-
-    // Draw Offer Relay
-    socket.on('offer_draw', ({ gameId }) => {
-        socket.to(gameId).emit('draw_offered');
-    });
-
-    // Draw Accept Relay
-    socket.on('accept_draw', ({ gameId }) => {
-        socket.to(gameId).emit('draw_accepted');
-    });
 // Start server (Using force: true temporarily to wipe the broken Game table)
 sequelize.sync({ force: true }).then(() => {
     server.listen(port, () => console.log(`🚀 Server + WebSockets running on port ${port}`));
