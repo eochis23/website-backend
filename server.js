@@ -16,7 +16,12 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
 });
 
 // 2. Define the Game Model
+// server.js - Update the Game Model definition
 const Game = sequelize.define('Game', {
+    id: {
+        type: DataTypes.TEXT, // Changed from default Integer to TEXT
+        primaryKey: true      // Explicitly set as primary key
+    },
     fen: { type: DataTypes.TEXT, defaultValue: 'startpos' },
     whitePlayer: { type: DataTypes.JSON, allowNull: true },
     blackPlayer: { type: DataTypes.JSON, allowNull: true },
