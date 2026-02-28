@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http'); 
+const crypto = require('crypto');
 const { Server } = require('socket.io');
 const { Sequelize, DataTypes } = require('sequelize');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
@@ -25,6 +26,7 @@ const GameLog = sequelize.define('GameLog', {
 
 // 3. In-Memory Store
 const activeGames = {};
+let waitingPlayer = null; // The matchmaking queue
 
 // 4. Initialize Socket.io
 const io = new Server(server, {
@@ -38,27 +40,47 @@ app.use(express.json());
 io.on('connection', (socket) => {
     console.log(`👤 User Connected: ${socket.id}`);
 
-    socket.on('join_game', ({ gameId, user }) => {
-        socket.join(gameId);
-        if (!activeGames[gameId]) {
+    // NEW: Random Matchmaking Logic
+    socket.on('find_match', ({ user }) => {
+        // Prevent user from joining queue twice
+        if (waitingPlayer && waitingPlayer.user.email === user.email) return;
+
+        if (waitingPlayer) {
+            // Match Found! Create a new unique room.
+            const gameId = crypto.randomUUID();
+            const p1 = waitingPlayer;
+            const p2 = { socket, user };
+
+            // Randomize White and Black
+            const isP1White = Math.random() < 0.5;
+            const whitePlayer = isP1White ? p1 : p2;
+            const blackPlayer = isP1White ? p2 : p1;
+
             activeGames[gameId] = {
-                whitePlayer: null,
-                blackPlayer: null,
+                whitePlayer: whitePlayer.user,
+                blackPlayer: blackPlayer.user,
                 fen: 'startpos',
-                history: [] 
+                history: []
             };
+
+            // Put both sockets in the private room
+            whitePlayer.socket.join(gameId);
+            blackPlayer.socket.join(gameId);
+
+            // Tell both players the game has started
+            io.to(gameId).emit('update_players', {
+                gameId: gameId, // Send the new dynamic ID to the clients
+                white: whitePlayer.user,
+                black: blackPlayer.user,
+                fen: 'startpos'
+            });
+
+            waitingPlayer = null; // Clear the queue
+        } else {
+            // Nobody waiting, put this player in the queue
+            waitingPlayer = { socket, user };
+            socket.emit('waiting_for_match');
         }
-        const room = activeGames[gameId];
-        if (!room.whitePlayer) {
-            room.whitePlayer = user;
-        } else if (!room.blackPlayer && room.whitePlayer.email !== user.email) {
-            room.blackPlayer = user;
-        }
-        io.to(gameId).emit('update_players', {
-            white: room.whitePlayer,
-            black: room.blackPlayer,
-            fen: room.fen
-        });
     });
 
     socket.on('make_move', ({ gameId, move, fen, san }) => {
@@ -86,35 +108,20 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- MOVED THESE INSIDE THE CONNECTION BLOCK ---
+    // Relays
+    socket.on('send_chat', ({ gameId, message, author }) => socket.to(gameId).emit('receive_chat', { message, author }));
+    socket.on('resign', ({ gameId, outcome }) => socket.to(gameId).emit('opponent_resigned', { outcome }));
+    socket.on('offer_draw', ({ gameId }) => socket.to(gameId).emit('draw_offered'));
+    socket.on('accept_draw', ({ gameId }) => socket.to(gameId).emit('draw_accepted'));
+    socket.on('rescind_draw', ({ gameId }) => socket.to(gameId).emit('draw_rescinded'));
 
-    // Chat Relay
-    socket.on('send_chat', ({ gameId, message, author }) => {
-        socket.to(gameId).emit('receive_chat', { message, author });
+    socket.on('disconnect', () => {
+        // Remove from queue if they disconnect while waiting
+        if (waitingPlayer && waitingPlayer.socket.id === socket.id) {
+            waitingPlayer = null;
+        }
+        console.log("User Disconnected");
     });
-
-    // Resign Relay
-    socket.on('resign', ({ gameId, outcome }) => {
-        socket.to(gameId).emit('opponent_resigned', { outcome });
-    });
-
-    // Draw Offer Relay
-    socket.on('offer_draw', ({ gameId }) => {
-        socket.to(gameId).emit('draw_offered');
-    });
-
-    // Draw Accept Relay
-    socket.on('accept_draw', ({ gameId }) => {
-        socket.to(gameId).emit('draw_accepted');
-    });
-    // Rescind Draw Relay
-    socket.on('rescind_draw', ({ gameId }) => {
-        socket.to(gameId).emit('draw_rescinded');
-    });
-
-    // -----------------------------------------------
-
-    socket.on('disconnect', () => console.log("User Disconnected"));
 });
 
 // --- YOUR EXISTING ROUTES ---
