@@ -42,8 +42,8 @@ io.on('connection', (socket) => {
 
     // NEW: Random Matchmaking Logic
     socket.on('find_match', ({ user }) => {
-        // REMOVED: The check that prevented the same email from joining twice
-        // Now you can test against yourself in two tabs!
+        // NEW: Prevent the exact same browser tab from matching with itself
+        if (waitingPlayer && waitingPlayer.socket.id === socket.id) return;
 
         if (waitingPlayer) {
             const gameId = crypto.randomUUID();
@@ -55,7 +55,6 @@ io.on('connection', (socket) => {
             const whitePlayer = isP1White ? p1 : p2;
             const blackPlayer = isP1White ? p2 : p1;
 
-            // NEW: Attach the unique socket ID to the user payload
             const whiteUser = { ...whitePlayer.user, socketId: whitePlayer.socket.id };
             const blackUser = { ...blackPlayer.user, socketId: blackPlayer.socket.id };
 
