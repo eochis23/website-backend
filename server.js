@@ -6,6 +6,8 @@ const { Server } = require('socket.io');
 const { Sequelize, DataTypes } = require('sequelize');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
+
+
 const app = express();
 const server = http.createServer(app); 
 const port = process.env.PORT || 3000;
@@ -26,7 +28,10 @@ const GameLog = sequelize.define('GameLog', {
 
 // 3. In-Memory Store
 const activeGames = {};
-let waitingPlayer = null; // The matchmaking queue
+const emailToGame = {}; 
+const socketToEmail = {}; 
+const disconnectTimers = {}; 
+let waitingPlayer = null; // Only declare this once!
 
 // 4. Initialize Socket.io
 const io = new Server(server, {
@@ -40,8 +45,43 @@ app.use(express.json());
 io.on('connection', (socket) => {
     console.log(`👤 User Connected: ${socket.id}`);
 
-    // Make sure to add 'async' here
     socket.on('find_match', async ({ user }) => {
+        const email = user.email;
+
+        socketToEmail[socket.id] = email; // Map it immediately
+
+        // --- 1. RECONNECTION CHECK ---
+        if (emailToGame[email] && activeGames[emailToGame[email]]) {
+            const gameId = emailToGame[email];
+            const room = activeGames[gameId];
+
+            // Re-assign the new socket ID
+            if (room.whitePlayer.email === email) {
+                room.whitePlayer.socketId = socket.id;
+            } else if (room.blackPlayer.email === email) {
+                room.blackPlayer.socketId = socket.id;
+            }
+
+            socket.join(gameId);
+            socket.emit('update_players', {
+                gameId: gameId, 
+                white: room.whitePlayer,
+                black: room.blackPlayer,
+                fen: room.fen // Send the mid-game state!
+            });
+
+            // Clear the forfeit timer if they came back
+            if (disconnectTimers[email]) {
+                clearTimeout(disconnectTimers[email]);
+                delete disconnectTimers[email];
+                // Tell the opponent they returned
+                socket.to(gameId).emit('receive_chat', { message: "Opponent reconnected!", author: "System" });
+            }
+            
+            return; // MUST HAVE THIS RETURN to stop them from entering the queue
+        }
+        
+        // --- 2. NORMAL MATCHMAKING ---
         if (waitingPlayer && waitingPlayer.socket.id === socket.id) return;
 
         if (waitingPlayer) {
@@ -49,7 +89,6 @@ io.on('connection', (socket) => {
             const p1 = waitingPlayer;
             const p2 = { socket, user };
 
-            // Randomize White and Black
             const isP1White = Math.random() < 0.5;
             const whitePlayer = isP1White ? p1 : p2;
             const blackPlayer = isP1White ? p2 : p1;
@@ -57,13 +96,12 @@ io.on('connection', (socket) => {
             const whiteUser = { ...whitePlayer.user, socketId: whitePlayer.socket.id };
             const blackUser = { ...blackPlayer.user, socketId: blackPlayer.socket.id };
 
-            // --- NEW: Calculate Head-to-Head Record ---
-            let whiteWins = 0;
-            let blackWins = 0;
-            let draws = 0;
+            // Lock the emails into the active game mapping
+            emailToGame[whiteUser.email] = gameId;
+            emailToGame[blackUser.email] = gameId;
 
+            let whiteWins = 0; let blackWins = 0; let draws = 0;
             try {
-                // Fetch games to calculate the record between these two specific players
                 const pastGames = await GameLog.findAll(); 
                 pastGames.forEach(game => {
                     const wEmail = game.whitePlayer?.email;
@@ -84,7 +122,6 @@ io.on('connection', (socket) => {
             } catch (err) {
                 console.error("Failed to fetch head-to-head record:", err);
             }
-            // ------------------------------------------
 
             activeGames[gameId] = {
                 whitePlayer: whiteUser,
@@ -101,7 +138,7 @@ io.on('connection', (socket) => {
                 white: whiteUser,
                 black: blackUser,
                 fen: 'startpos',
-                record: { whiteWins, blackWins, draws } // Send the tallied record to the clients!
+                record: { whiteWins, blackWins, draws } 
             });
 
             waitingPlayer = null; 
@@ -129,7 +166,12 @@ io.on('connection', (socket) => {
                     outcome: outcome,
                     history: room.history
                 });
+                
+                // --- NEW: Free the players to start a new match ---
+                delete emailToGame[room.whitePlayer.email];
+                delete emailToGame[room.blackPlayer.email];
                 delete activeGames[gameId];
+
             } catch (err) {
                 console.error("Failed to save game log:", err);
             }
@@ -144,10 +186,56 @@ io.on('connection', (socket) => {
     socket.on('rescind_draw', ({ gameId }) => socket.to(gameId).emit('draw_rescinded'));
 
     socket.on('disconnect', () => {
-        // Remove from queue if they disconnect while waiting
+        const email = socketToEmail[socket.id];
+
+        // 1. Remove from queue if waiting
         if (waitingPlayer && waitingPlayer.socket.id === socket.id) {
             waitingPlayer = null;
         }
+
+        // 2. Handle active game disconnects
+        if (email && emailToGame[email]) {
+            const gameId = emailToGame[email];
+            const room = activeGames[gameId];
+
+            if (room) {
+                // Let the opponent know the clock is ticking
+                socket.to(gameId).emit('receive_chat', { 
+                    message: "Opponent disconnected. 60 seconds until forfeit...", 
+                    author: "System" 
+                });
+
+                // Start the 60s forfeit timer
+                disconnectTimers[email] = setTimeout(async () => {
+                    const activeRoom = activeGames[gameId];
+                    if (activeRoom) {
+                        const isWhite = activeRoom.whitePlayer.email === email;
+                        const outcome = isWhite ? '0-1' : '1-0'; // The person who stayed wins
+
+                        // Tell the remaining player they won
+                        io.to(gameId).emit('opponent_forfeited', { outcome });
+
+                        // Log to DB and clean up
+                        try {
+                            await GameLog.create({
+                                whitePlayer: activeRoom.whitePlayer,
+                                blackPlayer: activeRoom.blackPlayer,
+                                outcome: outcome,
+                                history: activeRoom.history
+                            });
+                            
+                            delete emailToGame[activeRoom.whitePlayer.email];
+                            delete emailToGame[activeRoom.blackPlayer.email];
+                            delete activeGames[gameId];
+                            delete disconnectTimers[email];
+                        } catch (err) {
+                            console.error("Failed to save game log:", err);
+                        }
+                    }
+                }, 60000);
+            }
+        }
+        delete socketToEmail[socket.id]; // Clean up the map
         console.log("User Disconnected");
     });
 });
