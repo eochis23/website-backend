@@ -250,6 +250,6 @@ app.post('/api/log-visitor', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Failed to log visitor." }); }
 });
 
-sequelize.sync({ force: true }).then(() => {
+sequelize.sync({ alter: true }).then(() => {
     server.listen(port, () => console.log(`Server + WebSockets running on port ${port}`));
 });
