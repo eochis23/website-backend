@@ -54,12 +54,33 @@ io.on('connection', (socket) => {
             }
 
             socket.join(gameId);
+            
+            let whiteWins = 0; let blackWins = 0; let draws = 0;
+            try {
+                const pastGames = await GameLog.findAll();
+                pastGames.forEach(game => {
+                    const wEmail = game.whitePlayer?.email;
+                    const bEmail = game.blackPlayer?.email;
+
+                    if ((wEmail === room.whitePlayer.email && bEmail === room.blackPlayer.email) ||
+                        (wEmail === room.blackPlayer.email && bEmail === room.whitePlayer.email)) {
+                        
+                        if (game.outcome === '1/2-1/2') draws++;
+                        else if (game.outcome === '1-0') { if (wEmail === room.whitePlayer.email) whiteWins++; else blackWins++; }
+                        else if (game.outcome === '0-1') { if (bEmail === room.whitePlayer.email) blackWins++; else whiteWins++; }
+                    }
+                });
+            } catch (err) {
+                console.error(err);
+            }
+
             socket.emit('update_players', {
                 gameId: gameId,
                 white: room.whitePlayer,
                 black: room.blackPlayer,
                 fen: room.fen,
-                moveHistory: room.history
+                moveHistory: room.history,
+                record: { whiteWins, blackWins, draws }
             });
 
             if (disconnectTimers[email]) {
@@ -109,7 +130,7 @@ io.on('connection', (socket) => {
                     }
                 });
             } catch (err) {
-                console.error("Failed to fetch head-to-head record:", err);
+                console.error(err);
             }
 
             activeGames[gameId] = {
@@ -161,7 +182,7 @@ io.on('connection', (socket) => {
                 delete activeGames[gameId];
 
             } catch (err) {
-                console.error("Failed to save game log:", err);
+                console.error(err);
             }
         }
     });
@@ -210,7 +231,7 @@ io.on('connection', (socket) => {
                             delete activeGames[gameId];
                             delete disconnectTimers[email];
                         } catch (err) {
-                            console.error("Failed to save game log:", err);
+                            console.error(err);
                         }
                     }
                 }, 60000);
@@ -237,8 +258,7 @@ app.post('/api/draft-email', async (req, res) => {
 
 app.post('/api/log-visitor', async (req, res) => {
     const { email, firstName } = req.body;
-    // Switch for CMU emails
-    // if (!email || !email.endsWith('@andrew.cmu.edu')) return res.status(400).json({ error: "Invalid CMU email" });
+    
     if (!email) return res.status(400).json({ error: "Invalid CMU email" });
     try {
         const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
