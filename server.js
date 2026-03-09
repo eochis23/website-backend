@@ -38,7 +38,7 @@ app.use(express.json());
 io.on('connection', (socket) => {
     console.log(`User Connected: ${socket.id}`);
 
-    socket.on('find_match', async ({ user }) => {
+    socket.on('find_match', async ({ user , joinQueue = true }) => {
         const email = user.email;
 
         socketToEmail[socket.id] = email;
@@ -70,7 +70,8 @@ io.on('connection', (socket) => {
 
             return;
         }
-
+        if (!joinQueue) return;
+        
         if (waitingPlayer && waitingPlayer.socket.id === socket.id) return;
 
         if (waitingPlayer) {
