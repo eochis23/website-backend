@@ -237,6 +237,7 @@ app.post('/api/draft-email', async (req, res) => {
 
 app.post('/api/log-visitor', async (req, res) => {
     const { email, firstName } = req.body;
+    
     // Switch for CMU emails
     if (!email || !email.endsWith('@andrew.cmu.edu')) return res.status(400).json({ error: "Invalid CMU email" });
     // if (!email) return res.status(400).json({ error: "Invalid CMU email" });
